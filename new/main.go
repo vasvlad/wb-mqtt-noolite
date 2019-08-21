@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/contactless/wb-mqtt-noolite/noolite"
@@ -17,6 +18,7 @@ type Driver struct {
 	conn   *noolite.Connection
 	loops  []func()
 	ticker *time.Ticker
+	wbgo.DeviceFilter
 }
 
 func NewDriver(driverArgs *wbgo.DriverArgs) (*Driver, error) {
@@ -36,7 +38,8 @@ func NewDriver(driverArgs *wbgo.DriverArgs) (*Driver, error) {
 	}
 	d.OnDriverEvent(d.HandleEvent)
 	d.WaitForReady()
-	d.SetFilter(wbgo.NewDeviceListFilter("NooLiteF-00000000", "Test", "noolite-f", "noolite"))
+	d.DeviceFilter = wbgo.NewDeviceListFilter("nlf+", "noolite-f")
+	d.SetFilter(d)
 	d.WaitForReady()
 	d.ticker = time.NewTicker(5 * time.Second)
 	go func() {
@@ -51,6 +54,35 @@ func NewDriver(driverArgs *wbgo.DriverArgs) (*Driver, error) {
 		}
 	}()
 	return d, nil
+}
+
+func (d *Driver) MatchTopic(topic string) bool {
+	if strings.Contains(topic, "/devices/nlf-") {
+		fmt.Println(topic)
+		var kind string
+		var id0, id1, id2, id3, ch byte
+		fmt.Sscanf(topic, "/devices/nlf-%s_%X-%X_%X_%X_%X", &kind, &ch, &id0, &id1, &id2, &id3)
+		if kind == "r" {
+			id := fmt.Sprintf("nlf-r_%X-%X_%X_%X_%X", ch, id0, id1, id2, id3)
+			title := fmt.Sprintf("NooLite-F Relay %X%X%X%X", id0, id1, id2, id3)
+			wbgo.Debug.Printf("Try to create relayDesk %s[%s]\n", title, id)
+			desk, err := d.AddDesk(id, title)
+			wbgo.Debug.Printf("Try to create relayDesk %s[%+v]\n", err, desk)
+			if err != nil {
+				wbgo.Debug.Printf("Error on crate pane: %s", err)
+				return false
+			}
+			rd := &RelayDesk{*desk, [4]byte{id0, id1, id2, id3}, ch, false}
+			wbgo.Debug.Printf("Try to initialize NL-F relay desk\n")
+			err = rd.initialize()
+			if err != nil {
+				wbgo.Error.Printf("Error on initialize relay pane: %s", err)
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func (d *Driver) AddDesk(id, title string) (*Desk, error) {
