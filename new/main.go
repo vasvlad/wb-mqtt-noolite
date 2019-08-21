@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/contactless/wb-mqtt-noolite/noolite"
 	"github.com/evgeny-boger/wbgo"
@@ -12,8 +13,10 @@ import (
 
 type Driver struct {
 	wbgo.DeviceDriver
-	desks map[string]*Desk
-	conn  *noolite.Connection
+	desks  map[string]*Desk
+	conn   *noolite.Connection
+	loops  []func()
+	ticker *time.Ticker
 }
 
 func NewDriver(driverArgs *wbgo.DriverArgs) (*Driver, error) {
@@ -35,21 +38,31 @@ func NewDriver(driverArgs *wbgo.DriverArgs) (*Driver, error) {
 	d.WaitForReady()
 	d.SetFilter(wbgo.NewDeviceListFilter("NooLiteF-00000000", "Test", "noolite-f", "noolite"))
 	d.WaitForReady()
+	d.ticker = time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			_, ok := <-d.ticker.C
+			if !ok {
+				break
+			}
+			for _, f := range d.loops {
+				go f()
+			}
+		}
+	}()
 	return d, nil
 }
 
 func (d *Driver) AddDesk(id, title string) (*Desk, error) {
-	if desk, ok := d.desks[id]; ok {
-		return desk, nil
-	}
 	err := d.AccessAsync(func(tx wbgo.DriverTx) error {
 		deviceArgs := wbgo.NewLocalDeviceArgs().SetId(id).
-			SetTitle(title).SetVirtual(false).SetDoLoadPrevious(true)
+			SetTitle(title).SetVirtual(false).SetDoLoadPrevious(false)
 		dev, err := tx.CreateDevice(deviceArgs)()
+		wbgo.Debug.Println("Create device")
 		if err != nil {
+			wbgo.Error.Printf("Error on create device: %s\n", err)
 			return err
 		}
-		dev.SetTx(tx)
 		desk := &Desk{dev, make(map[string]wbgo.Control), d, make(map[string]func(e wbgo.ControlOnValueEvent))}
 		d.desks[id] = desk
 		return nil
@@ -93,7 +106,6 @@ func (nbd *NooliteBindDesk) Initialize() error {
 }
 
 func (nbd *NooliteBindDesk) createTX(event wbgo.ControlOnValueEvent) {
-	wbgo.Debug.Println("CREATE TX!")
 	req := new(noolite.Request)
 	req.Ch = 1
 	req.Mode = noolite.NooLiteFTX
@@ -109,7 +121,7 @@ func (nbd *NooliteBindDesk) createTX(event wbgo.ControlOnValueEvent) {
 		return
 	}
 	wbgo.Debug.Println("Create relay desk")
-	nbd.createRelayDesk(resp)
+	go nbd.createRelayDesk(resp)
 }
 
 func (nbd *NooliteBindDesk) createRelayDesk(resp *noolite.Response) {
@@ -144,15 +156,23 @@ func (rd *RelayDesk) initialize() error {
 		return err
 	}
 	rd.events["power"] = rd.toogle
+	rd.d.loops = append(rd.d.loops, rd.updateStatus)
 	return nil
 }
 
-func (rd *RelayDesk) toogle(event wbgo.ControlOnValueEvent) {
+func (rd *RelayDesk) toogle(e wbgo.ControlOnValueEvent) {
+	var cmd byte = 0
+	if e.RawValue == "1" {
+		cmd = 2
+	}
+	if (rd.on && cmd == 2) || (!rd.on && cmd == 0) {
+		return
+	}
 	req := new(noolite.Request)
 	req.Ch = 1
 	req.Ctr = 8
 	req.Mode = noolite.NooLiteFTX
-	req.Cmd = 4 //ReadState
+	req.Cmd = cmd
 	req.ID0 = rd.addr[0]
 	req.ID1 = rd.addr[1]
 	req.ID2 = rd.addr[2]
@@ -167,6 +187,7 @@ func (rd *RelayDesk) toogle(event wbgo.ControlOnValueEvent) {
 		wbgo.Error.Printf("Error on sedn command to noolite-f relay: %s", err)
 		return
 	}
+	return
 
 }
 
@@ -180,7 +201,6 @@ func (rd *RelayDesk) updateStatus() {
 	req.ID1 = rd.addr[1]
 	req.ID2 = rd.addr[2]
 	req.ID3 = rd.addr[3]
-	wbgo.Debug.Println("Update noolite-f relay status")
 	err := rd.d.conn.Write(req)
 	if err != nil {
 		wbgo.Error.Printf("Error on sedn command to noolite-f relay: %s", err)
@@ -191,13 +211,24 @@ func (rd *RelayDesk) updateStatus() {
 		wbgo.Error.Printf("Error on sedn command to noolite-f relay: %s", err)
 		return
 	}
+	old := rd.on
 	rd.on = resp.D2 == 1
-	if power, ok := rd.controllers["power"]; ok {
-		val := "1"
-		if !rd.on {
-			val = "0"
+	if rd.on != old {
+		ctrl, ok := rd.controllers["power"]
+		if !ok {
+			return
 		}
-		power.SetRawValue(val)
+		err = rd.d.Access(func(tx wbgo.DriverTx) error {
+			ctrl.SetTx(tx)
+			err = ctrl.SetOnValue(rd.on)()
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			wbgo.Error.Printf("Error on update value: %s\n", err)
+		}
 	}
 }
 
