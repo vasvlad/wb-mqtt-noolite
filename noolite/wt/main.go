@@ -69,7 +69,6 @@ func main() {
 	case "read_state":
 		req.Mode = 2
 		req.Cmd = 128
-		req.Fmt = 0
 		err = c.Write(req)
 		if err != nil {
 			panic(err)

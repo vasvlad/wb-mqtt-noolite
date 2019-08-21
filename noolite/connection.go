@@ -3,7 +3,7 @@ package noolite
 import (
 	"syscall"
 
-	"github.com/contactless/wbgo"
+	"github.com/evgeny-boger/wbgo"
 	"github.com/schleibinger/sio"
 )
 
