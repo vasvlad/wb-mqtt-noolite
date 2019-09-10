@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		wbgo.Error.Fatalf("%+v", err)
 	}
-	desk, err := driver.AddDesk("noolite-f", "NooLite-F Control")
+	desk, err := driver.addDesk("noolite-f", "NooLite-F Control")
 	if err != nil {
 		wbgo.Error.Fatal(err)
 	}

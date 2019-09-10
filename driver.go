@@ -9,15 +9,16 @@ import (
 	"github.com/evgeny-boger/wbgo"
 )
 
+//Driver - common noolite and noolite-f driver
 type Driver struct {
 	wbgo.DeviceDriver
 	desks  map[string]*Desk
-	conn   *noolite.Connection
+	conn   NooliteConnection
 	loops  []func()
 	ticker *time.Ticker
-	wbgo.DeviceFilter
 }
 
+//NewDriver - function constructor of noolite driver
 func NewDriver(driverArgs *wbgo.DriverArgs, serial string) (*Driver, error) {
 	d := new(Driver)
 	d.desks = make(map[string]*Desk)
@@ -33,10 +34,10 @@ func NewDriver(driverArgs *wbgo.DriverArgs, serial string) (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	d.OnDriverEvent(d.HandleEvent)
+	d.OnDriverEvent(d.handleEvent)
 	d.WaitForReady()
-	d.DeviceFilter = wbgo.NewDeviceListFilter("noolite-f", "+/controls/power")
-	d.SetFilter(d)
+	deviceFilter := wbgo.NewDeviceListFilter("noolite-f", "+/controls/power")
+	d.SetFilter(deviceFilter)
 	d.WaitForReady()
 	d.ticker = time.NewTicker(10 * time.Second)
 	go func() {
@@ -53,7 +54,7 @@ func NewDriver(driverArgs *wbgo.DriverArgs, serial string) (*Driver, error) {
 	return d, nil
 }
 
-func (d *Driver) AddDesk(id, title string) (*Desk, error) {
+func (d *Driver) addDesk(id, title string) (*Desk, error) {
 	err := d.AccessAsync(func(tx wbgo.DriverTx) error {
 		deviceArgs := wbgo.NewLocalDeviceArgs().SetId(id).
 			SetTitle(title).SetVirtual(false).SetDoLoadPrevious(false)
@@ -74,48 +75,97 @@ func (d *Driver) AddDesk(id, title string) (*Desk, error) {
 	return d.desks[id], nil
 }
 
-func (d *Driver) HandleEvent(e wbgo.DriverEvent) {
+func (d *Driver) handleEvent(e wbgo.DriverEvent) {
 	switch event := e.(type) {
 	case wbgo.ControlOnValueEvent:
-		desk := d.desks[event.Control.GetDevice().GetId()]
-		if desk != nil {
-			handler := desk.events[event.Control.GetId()]
-			if handler != nil {
-				wbgo.Debug.Printf("Call handler for %s->%s\n", desk.GetId(), event.Control.GetId())
-				go handler(event)
-			}
-		}
+		d.changeControlEvent(event)
 	case wbgo.NewExternalDeviceEvent:
-		id := event.Device.GetId()
-		title := event.Device.GetTitle()
-		if strings.Contains(id, "nlf-r_") {
-			go func() {
-				//NooLite-F Relay
-				var ch, id0, id1, id2, id3 byte
-				_, err := fmt.Sscanf(id, "nlf-r_%X-%X_%X_%X_%X", &ch, &id0, &id1, &id2, &id3)
-				if err != nil {
-					wbgo.Debug.Printf("Error parse id: %s", err)
-					return
-				}
-				wbgo.Debug.Printf("Try to create relayDesk %s[%s]\n", title, id)
-				desk, err := d.AddDesk(id, title)
-				wbgo.Debug.Printf("Try to create relayDesk %s[%+v]\n", err, d)
-				if err != nil {
-					wbgo.Debug.Printf("Error on crate pane: %s", err)
-					return
-				}
-				rd := &RelayDesk{*desk, [4]byte{id0, id1, id2, id3}, ch, false}
-				wbgo.Debug.Printf("Try to initialize NL-F relay desk\n")
-				go func() {
-					err = rd.initialize()
-					if err != nil {
-						wbgo.Error.Printf("Error on initialize relay pane: %s", err)
-					}
-				}()
-			}()
-		}
+		d.addExternalDevice(event)
 	case wbgo.StopEvent:
 		d.WaitForReady()
 		d.conn.Close()
 	}
+}
+
+func (d *Driver) changeControlEvent(event wbgo.ControlOnValueEvent) {
+	desk := d.desks[event.Control.GetDevice().GetId()]
+	if desk != nil {
+		handler := desk.events[event.Control.GetId()]
+		if handler != nil {
+			wbgo.Debug.Printf("Call handler for %s->%s\n", desk.GetId(), event.Control.GetId())
+			go handler(event)
+		}
+	}
+}
+
+func (d *Driver) addExternalDevice(event wbgo.NewExternalDeviceEvent) {
+	id := event.Device.GetId()
+	title := event.Device.GetTitle()
+	if strings.Contains(id, "nlf-r_") {
+		go d.addExternalNLFRelay(id, title)
+	} else if strings.Contains(id, "nlf-d_") {
+		go d.addExternalNLFDimmer(id, title)
+	}
+}
+
+func (d *Driver) addExternalNLFRelay(id, title string) {
+	var ch, id0, id1, id2, id3 byte
+	_, err := fmt.Sscanf(id, "nlf-r_%X-%X_%X_%X_%X", &ch, &id0, &id1, &id2, &id3)
+	if err != nil {
+		wbgo.Debug.Printf("Error parse id: %s", err)
+		return
+	}
+	d.CreateNooliteF(ch, id0, id1, id2, id3, true)
+}
+
+func (d *Driver) addExternalNLFDimmer(id, title string) {
+	var ch, id0, id1, id2, id3 byte
+	_, err := fmt.Sscanf(id, dimmerIDMask, &ch, &id0, &id1, &id2, &id3)
+	if err != nil {
+		wbgo.Debug.Printf("Error parse id: %s", err)
+		return
+	}
+	d.CreateNooliteF(ch, id0, id1, id2, id3, false)
+}
+
+const (
+	relayIDMask     = "nlf-r_%X-%X_%X_%X_%X"
+	dimmerIDMask    = "nlf-d_%X-%X_%X_%X_%X"
+	relayTitleMask  = "NooLite-F Relay %X%X%X%X"
+	dimmerTitleMask = "NooLite-F Dimmer %X%X%X%X"
+)
+
+//CreateNooliteF - create new noolite-f device (realy or dimmer)
+func (d *Driver) CreateNooliteF(ch, id0, id1, id2, id3 byte, isRelay bool) {
+	var idMask, titleMask string
+	if isRelay {
+		idMask = relayIDMask
+		titleMask = relayTitleMask
+	} else {
+		idMask = dimmerIDMask
+		titleMask = dimmerTitleMask
+	}
+	id := fmt.Sprintf(idMask, ch, id0, id1, id2, id3)
+	title := fmt.Sprintf(titleMask, ch, id0, id1, id2, id3)
+	wbgo.Debug.Printf("Try to create %s[%s]\n", title, id)
+	desk, err := d.addDesk(id, title)
+	if err != nil {
+		wbgo.Error.Printf("Error on create %s: %s", title, err)
+		return
+	}
+	var init interface {
+		initialize() error
+	}
+	addr := [4]byte{id0, id1, id2, id3}
+	if isRelay {
+		init = &RelayDesk{*desk, addr, ch, false}
+	} else {
+		init = &DimmerDesk{*desk, addr, ch, false, 255}
+	}
+	go func() {
+		err := init.initialize()
+		if err != nil {
+			wbgo.Error.Printf("Error on initialize %s: %s", title, err)
+		}
+	}()
 }

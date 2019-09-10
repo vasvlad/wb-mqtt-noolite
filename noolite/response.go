@@ -49,6 +49,7 @@ func (r Response) validate() error {
 
 func bytesToResponse(raw []byte) (*Response, error) {
 	if len(raw) != 17 {
+		return nil, errors.New("short response")
 	}
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&raw))
 	r := (*Response)(unsafe.Pointer(sh.Data))

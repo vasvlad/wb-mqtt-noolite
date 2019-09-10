@@ -25,6 +25,31 @@ func (rd *DimmerDesk) initialize() error {
 	rd.events["power"] = rd.toogle
 	rd.events["level"] = rd.changeLevel
 	rd.d.loops = append(rd.d.loops, rd.updateStatus)
+	return rd.switchToDimmer()
+}
+
+func (rd *DimmerDesk) switchToDimmer() error {
+	println("DIMMER!!!!")
+	req := new(noolite.Request)
+	req.Ch = 1
+	req.Ctr = 8
+	req.Mode = noolite.NooLiteFTX
+	req.Cmd = 129
+	req.Fmt = 16
+	req.D0 = 2
+	req.D2 = 127
+	req.ID0 = rd.addr[0]
+	req.ID1 = rd.addr[1]
+	req.ID2 = rd.addr[2]
+	req.ID3 = rd.addr[3]
+	err := rd.d.conn.Write(req)
+	if err != nil {
+		return err
+	}
+	_, err = rd.d.conn.Read()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -44,6 +69,10 @@ func (rd *DimmerDesk) changeLevel(e wbgo.ControlOnValueEvent) {
 	req.ID2 = rd.addr[2]
 	req.ID3 = rd.addr[3]
 	req.D3 = byte(newLevel)
+	if rd.on {
+		req.D1 = 1
+		req.D2 = 1
+	}
 	err = rd.d.conn.Write(req)
 	if err != nil {
 		wbgo.Error.Printf("Error on sedn command to noolite-f relay: %s", err)
@@ -54,7 +83,7 @@ func (rd *DimmerDesk) changeLevel(e wbgo.ControlOnValueEvent) {
 		wbgo.Error.Printf("Error on sedn command to noolite-f relay: %s", err)
 		return
 	}
-
+	rd.level = byte(newLevel)
 }
 
 func (rd *DimmerDesk) toogle(e wbgo.ControlOnValueEvent) {
@@ -70,6 +99,7 @@ func (rd *DimmerDesk) toogle(e wbgo.ControlOnValueEvent) {
 	req.Ctr = 8
 	req.Mode = noolite.NooLiteFTX
 	req.Cmd = cmd
+	req.D3 = rd.level
 	req.ID0 = rd.addr[0]
 	req.ID1 = rd.addr[1]
 	req.ID2 = rd.addr[2]
@@ -120,7 +150,7 @@ func (rd *DimmerDesk) updateStatus() {
 		}
 		err = rd.d.Access(func(tx wbgo.DriverTx) error {
 			ctrl.SetTx(tx)
-			err = ctrl.SetOnValue(int(rd.level))()
+			err = ctrl.SetOnValue(strconv.Itoa(int(rd.level)))()
 			if err != nil {
 				return err
 			}

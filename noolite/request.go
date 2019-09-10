@@ -5,6 +5,7 @@ import (
 	"unsafe"
 )
 
+//Request - structure to send command to MTRF-64
 type Request struct {
 	st   byte
 	Mode byte

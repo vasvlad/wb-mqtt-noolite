@@ -1,6 +1,7 @@
 package noolite
 
 import (
+	"io"
 	"syscall"
 
 	"github.com/evgeny-boger/wbgo"
@@ -9,7 +10,7 @@ import (
 
 //Connection - struct for connect to MTRF-64
 type Connection struct {
-	uart *sio.Port
+	uart io.ReadWriteCloser
 }
 
 //NewConnection - return new connection to MTRF-64
@@ -49,7 +50,7 @@ func (c *Connection) Write(req *Request) error {
 	if err != nil {
 		return err
 	}
-	wbgo.Debug.Printf("Sended %+x\n\t%+v\n", buf, req)
+	wbgo.Debug.Printf("[noolite] Sended %+x\n\t%+v\n", buf, req)
 	return nil
 }
 
@@ -64,7 +65,7 @@ func (c *Connection) Read() (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	wbgo.Debug.Printf("Recieved %+x\n\t%+v\n", buf, resp)
+	wbgo.Debug.Printf("[noolite] Recieved %+x\n\t%+v\n", buf, resp)
 	return resp, nil
 }
 
