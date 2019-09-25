@@ -29,14 +29,27 @@ func (rd *DimmerDesk) initialize() error {
 }
 
 func (rd *DimmerDesk) switchToDimmer() error {
-	println("DIMMER!!!!")
+	/*
+	https://github.com/SergejPr/NooLite-F/issues/1#issuecomment-367813106
+
+	CMD:129 FM:16 D0:xx D1:0 D2:127 D3:0
+
+	bits for D0:
+	0: save the module state when power is down
+	1: dimmer mode
+	2: allow accept noolite commands
+	3-4: extra button configuration (00 - switch mode, 01 - button, 10 - breaker??, 11 - disable extra button)
+	5: state after power up (has effect only if the saving of module state is disabled)
+	6: retranslation of the  nooLite commands
+	7: ?
+	*/
 	req := new(noolite.Request)
 	req.Ch = 1
 	req.Ctr = 8
 	req.Mode = noolite.NooLiteFTX
 	req.Cmd = 129
 	req.Fmt = 16
-	req.D0 = 2
+	req.D0 = 22
 	req.D2 = 127
 	req.ID0 = rd.addr[0]
 	req.ID1 = rd.addr[1]
@@ -68,11 +81,7 @@ func (rd *DimmerDesk) changeLevel(e wbgo.ControlOnValueEvent) {
 	req.ID1 = rd.addr[1]
 	req.ID2 = rd.addr[2]
 	req.ID3 = rd.addr[3]
-	req.D3 = byte(newLevel)
-	if rd.on {
-		req.D1 = 1
-		req.D2 = 1
-	}
+	req.D0 = byte(newLevel)
 	err = rd.d.conn.Write(req)
 	if err != nil {
 		wbgo.Error.Printf("Error on sedn command to noolite-f relay: %s", err)
@@ -87,7 +96,7 @@ func (rd *DimmerDesk) changeLevel(e wbgo.ControlOnValueEvent) {
 }
 
 func (rd *DimmerDesk) toogle(e wbgo.ControlOnValueEvent) {
-	var cmd byte = 0
+	var cmd byte
 	if e.RawValue == "1" {
 		cmd = 2
 	}

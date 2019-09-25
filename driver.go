@@ -146,7 +146,7 @@ func (d *Driver) CreateNooliteF(ch, id0, id1, id2, id3 byte, isRelay bool) {
 		titleMask = dimmerTitleMask
 	}
 	id := fmt.Sprintf(idMask, ch, id0, id1, id2, id3)
-	title := fmt.Sprintf(titleMask, ch, id0, id1, id2, id3)
+	title := fmt.Sprintf(titleMask, id0, id1, id2, id3)
 	wbgo.Debug.Printf("Try to create %s[%s]\n", title, id)
 	desk, err := d.addDesk(id, title)
 	if err != nil {
