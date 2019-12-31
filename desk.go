@@ -2,8 +2,7 @@ package main
 
 import (
 	"strconv"
-
-	"github.com/evgeny-boger/wbgo"
+	"github.com/contactless/wbgong"
 )
 
 type Desk struct {

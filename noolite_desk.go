@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/contactless/wb-mqtt-noolite/noolite"
-	"github.com/evgeny-boger/wbgo"
+	"github.com/vasvlad/wb-mqtt-noolite"
+	"github.com/contactless/wbgong"
 )
 
 type NooliteBindDesk struct {

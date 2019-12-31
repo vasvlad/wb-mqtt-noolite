@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/contactless/wb-mqtt-noolite/noolite"
-	"github.com/evgeny-boger/wbgo"
+	"github.com/vasvlad/wb-mqtt-noolite"
+	"github.com/contactless/wbgong"
 )
 
 //Driver - common noolite and noolite-f driver

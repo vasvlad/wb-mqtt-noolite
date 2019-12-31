@@ -5,7 +5,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/evgeny-boger/wbgo"
+	"github.com/contactless/wbgong"
+
 )
 
 func main() {
